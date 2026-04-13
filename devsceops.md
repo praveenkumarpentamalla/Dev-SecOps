@@ -1,5 +1,5 @@
 
-Hello everyone, my name is Abishek and welcome back to my channel. Welcome to the 10our long video that takes you from zero to hero of Dev Sec Ops. Basically, if you're a DevOps engineer planning to transition to Dev Sec Ops or if you want to step up in your organization, this is the best video that you're looking for. The overall video has seven different parts starting with introduction to dev sec ops where you'll learn what exactly is dev sec ops and you will also be introduced to a tool which shows the
+If you're a DevOps engineer planning to transition to Dev Sec Ops or if you want to step up in your organization, this is the best video that you're looking for. The overall video has seven different parts starting with introduction to dev sec ops where you'll learn what exactly is dev sec ops and you will also be introduced to a tool which shows the
 
 current security state of your application. Then in episode two or the part two you will learn about dev sec ops for git and github. This is a very interesting part where you will learn how you can secure your gate, what are the best practices that you can follow locally and even with respect to GitHub. Then in the third part we will cover dev sec ops for terapform. Again how you can secure terapform, how you can secure your state file, what security best practices you can take while writing the
 
