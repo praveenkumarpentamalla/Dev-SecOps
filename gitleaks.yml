@@ -1,0 +1,163 @@
+# =============================================================================
+# .github/workflows/gitleaks.yml
+# Secret scanning on every push and pull request.
+#
+# What this does:
+#   1. On any push to any branch — full diff scan of changed commits
+#   2. On any PR targeting main/master — scan the entire PR diff
+#   3. Weekly scheduled full-repo scan — catch anything merged historically
+#   4. Uploads SARIF results to GitHub Security tab (if Advanced Security enabled)
+#   5. Fails the build (exit 1) when any secret is detected
+# =============================================================================
+
+name: "🔑 Gitleaks — Secret Detection"
+
+on:
+  push:
+    branches:
+      - "**"          # Every branch, every push
+  pull_request:
+    branches:
+      - main
+      - master
+      - "release/**"
+      - "hotfix/**"
+  schedule:
+    # Full-repo scan every Monday at 03:00 UTC (catch historical leaks)
+    - cron: "0 3 * * 1"
+  workflow_dispatch:  # Allow manual trigger from the Actions UI
+
+permissions:
+  contents: read
+  security-events: write   # Required to upload SARIF to GitHub Security tab
+  pull-requests: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: Scan commits introduced by this push / PR
+  # ---------------------------------------------------------------------------
+  gitleaks-diff-scan:
+    name: "Scan new commits"
+    runs-on: ubuntu-latest
+    # Skip this job on the scheduled full-scan (handled by gitleaks-full-scan)
+    if: github.event_name != 'schedule'
+
+    steps:
+      - name: "Checkout — full history for diff scanning"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # Must be 0 so Gitleaks can compare commits
+          persist-credentials: false
+
+      - name: "Run Gitleaks — diff scan"
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # If you have a Gitleaks license for org-level features:
+          # GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        with:
+          # Scan only the commits introduced by this push / PR
+          args: >
+            detect
+            --config .gitleaks.toml
+            --redact
+            --exit-code=1
+            --report-format=sarif
+            --report-path=gitleaks-report.sarif
+            --log-level=warn
+
+      # Upload results to GitHub Security tab even on failure
+      - name: "Upload SARIF to GitHub Security"
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gitleaks-report.sarif
+          category: gitleaks-diff
+        continue-on-error: true   # Don't fail if GHAS is not enabled
+
+      # Keep the SARIF file as a downloadable artifact for 7 days
+      - name: "Upload SARIF artifact"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "gitleaks-diff-report-${{ github.run_id }}"
+          path: gitleaks-report.sarif
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Full repository scan (scheduled + manual)
+  # ---------------------------------------------------------------------------
+  gitleaks-full-scan:
+    name: "Full repository scan"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: "Checkout — full history"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: "Run Gitleaks — full repo scan"
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: >
+            detect
+            --config .gitleaks.toml
+            --redact
+            --exit-code=1
+            --report-format=sarif
+            --report-path=gitleaks-full-report.sarif
+            --log-level=warn
+            --no-git=false
+
+      - name: "Upload SARIF to GitHub Security"
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gitleaks-full-report.sarif
+          category: gitleaks-full
+        continue-on-error: true
+
+      - name: "Upload SARIF artifact"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "gitleaks-full-report-${{ github.run_id }}"
+          path: gitleaks-full-report.sarif
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Job 3: Notify on failure (optional — configure Slack/email)
+  # ---------------------------------------------------------------------------
+  notify-on-failure:
+    name: "Notify team on detection"
+    runs-on: ubuntu-latest
+    needs: [gitleaks-diff-scan]
+    if: failure() && github.event_name != 'schedule'
+
+    steps:
+      - name: "Send Slack alert"
+        # Only runs if SLACK_WEBHOOK_SECRET is configured in repo secrets
+        if: ${{ secrets.SLACK_WEBHOOK_SECRET != '' }}
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {
+              "text": "🚨 *Secret detected in ${{ github.repository }}*",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "🚨 *Gitleaks detected a potential secret*\n*Repo:* `${{ github.repository }}`\n*Branch:* `${{ github.ref_name }}`\n*Commit:* `${{ github.sha }}`\n*Author:* `${{ github.actor }}`\n*Run:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View details>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_SECRET }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
