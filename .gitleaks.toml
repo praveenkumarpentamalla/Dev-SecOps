@@ -1,0 +1,317 @@
+# =============================================================================
+# .gitleaks.toml — Production-grade secret detection rules
+# Covers: AWS, GCP, Azure, private keys, JWTs, DB creds, API tokens, and more
+# Docs: https://github.com/gitleaks/gitleaks
+# =============================================================================
+
+title = "Gitleaks Secret Detection Config"
+
+# ---------------------------------------------------------------------------
+# Global settings
+# ---------------------------------------------------------------------------
+
+[extend]
+# Extend the default ruleset shipped with gitleaks.
+# This means ALL default rules run PLUS the custom rules below.
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# Allowlist — safe patterns to suppress false positives globally
+# Add test fixtures, example values, documentation placeholders here.
+# ---------------------------------------------------------------------------
+
+[allowlist]
+description = "Global allowlist for safe patterns"
+
+# Regex patterns that are always allowed (e.g. placeholder values)
+regexes = [
+  # Example / placeholder values that appear in docs and READMEs
+  '''(?i)(example|placeholder|changeme|your[-_]?secret|dummy|test[-_]?key|fake[-_]?key|sample[-_]?key)''',
+  # Common template variables
+  '''\$\{[A-Z_]+\}''',         # ${MY_SECRET}
+  '''\$\([A-Z_]+\)''',         # $(MY_SECRET)
+  '''<%=\s*[A-Z_]+\s*%>''',    # <%= MY_SECRET %>
+  # Base64-looking strings that are just UUIDs or hashes
+  '''[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}''',
+]
+
+# Files/paths always ignored
+paths = [
+  # Lock files and dependency manifests (huge, no secrets)
+  '''package-lock\.json''',
+  '''yarn\.lock''',
+  '''Gemfile\.lock''',
+  '''poetry\.lock''',
+  '''go\.sum''',
+  # Build artifacts
+  '''\.min\.js$''',
+  '''dist/''',
+  '''build/''',
+  # Test fixtures directory
+  '''testdata/''',
+  '''test/fixtures/''',
+  '''spec/fixtures/''',
+  # Binary / media files
+  '''\.(png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|pdf|zip|tar|gz)$''',
+  # IDE / OS files
+  '''\.DS_Store''',
+  '''\.idea/''',
+  '''\.vscode/''',
+]
+
+# Specific commits to ignore (use after a known FP is introduced)
+# commits = ["abc123def456"]
+
+# ---------------------------------------------------------------------------
+# Custom rules — these extend (not replace) the default ruleset
+# ---------------------------------------------------------------------------
+
+# ---- AWS ----------------------------------------------------------------
+
+[[rules]]
+id          = "aws-access-key-id"
+description = "AWS Access Key ID"
+regex       = '''(?i)(?:aws|amazon)(?:[^"'\s]{0,30})?(?:access_?key|access_?key_?id|AKID)[^"'\s]{0,10}[=:\s]["']?(?P<secret>(AKIA|ABIA|ACCA|ASIA)[0-9A-Z]{16})["']?'''
+tags        = ["aws", "credentials"]
+severity    = "CRITICAL"
+
+  [rules.allowlist]
+  regexes = ['''(?i)(example|placeholder|fake|dummy|test)AKIA''']
+
+[[rules]]
+id          = "aws-secret-access-key"
+description = "AWS Secret Access Key"
+regex       = '''(?i)(?:aws|amazon)(?:[^"'\s]{0,40})?secret(?:[^"'\s]{0,10})?[=:\s]["']?(?P<secret>[A-Za-z0-9/+=]{40})["']?'''
+tags        = ["aws", "credentials"]
+severity    = "CRITICAL"
+
+[[rules]]
+id          = "aws-session-token"
+description = "AWS Session Token (STS)"
+regex       = '''(?i)aws(?:[^"'\s]{0,30})?session[-_]?token[^"'\s]{0,10}[=:\s]["']?(?P<secret>[A-Za-z0-9/+=]{100,})["']?'''
+tags        = ["aws", "credentials"]
+severity    = "CRITICAL"
+
+[[rules]]
+id          = "aws-mws-key"
+description = "Amazon MWS Auth Token"
+regex       = '''amzn\.mws\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'''
+tags        = ["aws", "mws"]
+severity    = "HIGH"
+
+# ---- GCP / Google --------------------------------------------------------
+
+[[rules]]
+id          = "gcp-service-account-key"
+description = "GCP Service Account JSON key"
+regex       = '''(?i)"private_key"\s*:\s*"-----BEGIN (?:RSA |EC )?PRIVATE KEY-----'''
+tags        = ["gcp", "google"]
+severity    = "CRITICAL"
+
+[[rules]]
+id          = "gcp-api-key"
+description = "Google API Key"
+regex       = '''AIza[0-9A-Za-z\-_]{35}'''
+tags        = ["gcp", "google"]
+severity    = "HIGH"
+
+[[rules]]
+id          = "google-oauth-client-secret"
+description = "Google OAuth Client Secret"
+regex       = '''(?i)google(?:[^"'\s]{0,30})?(?:client[-_]?secret|oauth[-_]?secret)[^"'\s]{0,10}[=:\s]["']?(?P<secret>[A-Za-z0-9_\-]{24})["']?'''
+tags        = ["gcp", "google", "oauth"]
+severity    = "HIGH"
+
+# ---- Azure ---------------------------------------------------------------
+
+[[rules]]
+id          = "azure-storage-account-key"
+description = "Azure Storage Account Key"
+regex       = '''(?i)(?:azure|az)(?:[^"'\s]{0,30})?(?:storage|account)(?:[^"'\s]{0,10})?key[^"'\s]{0,10}[=:\s]["']?(?P<secret>[A-Za-z0-9+/]{86}==)["']?'''
+tags        = ["azure", "microsoft"]
+severity    = "CRITICAL"
+
+[[rules]]
+id          = "azure-client-secret"
+description = "Azure Service Principal Client Secret"
+regex       = '''(?i)(?:azure|az)(?:[^"'\s]{0,30})?client[-_]?secret[^"'\s]{0,10}[=:\s]["']?(?P<secret>[A-Za-z0-9~._\-]{34,40})["']?'''
+tags        = ["azure", "microsoft"]
+severity    = "CRITICAL"
+
+[[rules]]
+id          = "azure-connection-string"
+description = "Azure Connection String"
+regex       = '''DefaultEndpointsProtocol=https?;AccountName=[^;]+;AccountKey=(?P<secret>[A-Za-z0-9+/=]{86,88});'''
+tags        = ["azure", "microsoft"]
+severity    = "CRITICAL"
+
+# ---- Private Keys --------------------------------------------------------
+
+[[rules]]
+id          = "rsa-private-key"
+description = "RSA Private Key"
+regex       = '''-----BEGIN RSA PRIVATE KEY-----'''
+tags        = ["key", "rsa"]
+severity    = "CRITICAL"
+
+[[rules]]
+id          = "ec-private-key"
+description = "EC Private Key"
+regex       = '''-----BEGIN EC PRIVATE KEY-----'''
+tags        = ["key", "ec"]
+severity    = "CRITICAL"
+
+[[rules]]
+id          = "openssh-private-key"
+description = "OpenSSH Private Key"
+regex       = '''-----BEGIN OPENSSH PRIVATE KEY-----'''
+tags        = ["key", "ssh"]
+severity    = "CRITICAL"
+
+[[rules]]
+id          = "pkcs8-private-key"
+description = "PKCS8 Private Key"
+regex       = '''-----BEGIN PRIVATE KEY-----'''
+tags        = ["key", "pkcs8"]
+severity    = "CRITICAL"
+
+[[rules]]
+id          = "pgp-private-key"
+description = "PGP Private Key Block"
+regex       = '''-----BEGIN PGP PRIVATE KEY BLOCK-----'''
+tags        = ["key", "pgp"]
+severity    = "CRITICAL"
+
+# ---- JWT -----------------------------------------------------------------
+
+[[rules]]
+id          = "jwt-secret"
+description = "Hardcoded JWT secret / signing key"
+regex       = '''(?i)jwt[-_]?(?:secret|key|signing[-_]?key|private[-_]?key)[^"'\s]{0,10}[=:\s]["']?(?P<secret>[A-Za-z0-9+/=_\-]{20,})["']?'''
+tags        = ["jwt", "authentication"]
+severity    = "CRITICAL"
+
+[[rules]]
+id          = "jwt-token"
+description = "JWT Bearer Token (signed token in source)"
+regex       = '''eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}'''
+tags        = ["jwt", "token"]
+severity    = "HIGH"
+
+  [rules.allowlist]
+  # Allow JWTs in test files and documentation
+  paths = ['''(?i)(test|spec|docs?|example|fixture)''']
+
+# ---- Database credentials ------------------------------------------------
+
+[[rules]]
+id          = "database-connection-string"
+description = "Database connection string with embedded credentials"
+regex       = '''(?i)(?:mongodb|postgresql|postgres|mysql|mssql|redis|amqp|rabbit)(?:\+[a-z]+)?://[^:@\s]+:(?P<secret>[^@\s]+)@[^\s"']+'''
+tags        = ["database", "credentials"]
+severity    = "CRITICAL"
+
+[[rules]]
+id          = "db-password-inline"
+description = "Inline database password assignment"
+regex       = '''(?i)(?:db[-_]?|database[-_]?|mysql[-_]?|postgres[-_]?|pg[-_]?|mongo[-_]?)(?:pass(?:word)?|pwd)[^"'\s]{0,5}[=:\s]["'](?P<secret>[^"'\s]{8,})["']'''
+tags        = ["database", "password"]
+severity    = "HIGH"
+
+[[rules]]
+id          = "generic-password"
+description = "Generic hardcoded password field"
+regex       = '''(?i)(?:password|passwd|pass|pwd)\s*[=:]\s*["'](?P<secret>[^"'\s]{8,})["']'''
+tags        = ["password", "credentials"]
+severity    = "HIGH"
+
+  [rules.allowlist]
+  regexes = [
+    # Skip obvious env var references
+    '''(?i)(os\.getenv|process\.env|environ\.get|getenv|ENV\[)''',
+    # Skip empty / placeholder passwords
+    '''["'](password|changeme|secret|placeholder|your[-_]?pass|<[^>]+>|\$\{[^}]+\})["']''',
+  ]
+
+# ---- API Tokens (major platforms) ----------------------------------------
+
+[[rules]]
+id          = "github-token"
+description = "GitHub Personal Access Token or App Token"
+regex       = '''(?:ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{36,255}'''
+tags        = ["github", "token"]
+severity    = "CRITICAL"
+
+[[rules]]
+id          = "gitlab-token"
+description = "GitLab Personal Access Token"
+regex       = '''glpat-[A-Za-z0-9\-]{20}'''
+tags        = ["gitlab", "token"]
+severity    = "CRITICAL"
+
+[[rules]]
+id          = "slack-token"
+description = "Slack API Token"
+regex       = '''xox[baprs]-(?:[0-9]{12})-(?:[0-9]{12})-(?:[0-9]{12})-[a-z0-9]{32}'''
+tags        = ["slack", "token"]
+severity    = "HIGH"
+
+[[rules]]
+id          = "slack-webhook"
+description = "Slack Webhook URL"
+regex       = '''https://hooks\.slack\.com/services/T[0-9A-Z]+/B[0-9A-Z]+/[0-9A-Za-z]+'''
+tags        = ["slack", "webhook"]
+severity    = "HIGH"
+
+[[rules]]
+id          = "stripe-api-key"
+description = "Stripe API Key"
+regex       = '''(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{24,}'''
+tags        = ["stripe", "payment"]
+severity    = "CRITICAL"
+
+[[rules]]
+id          = "sendgrid-api-key"
+description = "SendGrid API Key"
+regex       = '''SG\.[0-9A-Za-z\-_]{22}\.[0-9A-Za-z\-_]{43}'''
+tags        = ["sendgrid", "email"]
+severity    = "HIGH"
+
+[[rules]]
+id          = "twilio-auth-token"
+description = "Twilio Auth Token"
+regex       = '''(?i)twilio(?:[^"'\s]{0,20})?(?:auth[-_]?token|token)[^"'\s]{0,10}[=:\s]["']?(?P<secret>[A-Za-z0-9]{32})["']?'''
+tags        = ["twilio", "token"]
+severity    = "HIGH"
+
+[[rules]]
+id          = "npm-token"
+description = "NPM Access Token"
+regex       = '''(?:npm_|//registry\.npmjs\.org/:_authToken=)[A-Za-z0-9_\-]{36,}'''
+tags        = ["npm", "token"]
+severity    = "HIGH"
+
+[[rules]]
+id          = "docker-registry-auth"
+description = "Docker registry auth in .docker/config.json"
+regex       = '''"auth"\s*:\s*"(?P<secret>[A-Za-z0-9+/=]{20,})"'''
+tags        = ["docker", "registry"]
+severity    = "HIGH"
+
+  [rules.allowlist]
+  regexes = ['''(?i)(example|placeholder|test|fake)''']
+
+# ---- General high-entropy secrets ----------------------------------------
+
+[[rules]]
+id          = "generic-api-key"
+description = "Generic API key / secret assignment (high entropy)"
+regex       = '''(?i)(?:api[-_]?key|api[-_]?secret|access[-_]?token|auth[-_]?token|secret[-_]?key|private[-_]?key|encryption[-_]?key)[^"'\s]{0,10}[=:\s]["'](?P<secret>[A-Za-z0-9+/=_\-]{20,})["']'''
+tags        = ["generic", "api"]
+severity    = "HIGH"
+
+  [rules.allowlist]
+  regexes = [
+    '''(?i)(example|placeholder|changeme|your[-_]?key|fake|dummy|test)''',
+    '''(?i)(process\.env|os\.getenv|environ\.get|ENV\[|getenv)''',
+  ]
