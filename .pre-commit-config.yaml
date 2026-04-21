@@ -1,0 +1,101 @@
+# =============================================================================
+# .pre-commit-config.yaml
+# Pre-commit framework configuration.
+# Runs automatically on every `git commit`.
+#
+# Install once per machine:   pip install pre-commit
+# Install hooks into repo:    pre-commit install
+# Update hook versions:       pre-commit autoupdate
+# Run manually on all files:  pre-commit run --all-files
+# =============================================================================
+
+# Minimum pre-commit version required
+minimum_pre_commit_version: "3.0.0"
+
+# Default hook stages — runs on commit and push
+default_stages: [commit, push]
+
+repos:
+
+  # ---------------------------------------------------------------------------
+  # Gitleaks — secret detection (PRIMARY security hook)
+  # Always runs first so secrets are caught before anything else.
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2       # Pin to a specific version; run `pre-commit autoupdate` to bump
+    hooks:
+      - id: gitleaks
+        name: "🔑 Gitleaks — scan for secrets"
+        # Pass our custom .gitleaks.toml so all custom rules are active
+        args: ["--config=.gitleaks.toml", "--verbose"]
+        # Run on all staged files, not just diffs
+        stages: [commit]
+
+  # ---------------------------------------------------------------------------
+  # detect-secrets — secondary scanner (complements Gitleaks)
+  # Great at high-entropy string detection.
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        name: "🔍 detect-secrets — entropy scan"
+        args:
+          - "--baseline"
+          - ".secrets.baseline"
+          - "--exclude-files"
+          - "package-lock\\.json|yarn\\.lock|poetry\\.lock|\\.min\\.js$"
+        # Exclude known-safe files
+        exclude: >
+          (?x)^(
+            package-lock\.json|
+            yarn\.lock|
+            poetry\.lock|
+            go\.sum|
+            \.secrets\.baseline
+          )$
+
+  # ---------------------------------------------------------------------------
+  # Standard code hygiene — runs alongside security checks
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # Prevent large files (e.g., accidentally committed .env files)
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      # Block committing directly to main/master
+      - id: no-commit-to-branch
+        args: ["--branch", "main", "--branch", "master"]
+      # Catch merge conflict markers left in files
+      - id: check-merge-conflict
+      # Detect AWS credentials using the built-in hook
+      - id: detect-aws-credentials
+        args: ["--allow-missing-credentials"]
+      # Ensure private keys are never committed
+      - id: detect-private-key
+      # Validate JSON/YAML syntax (catches malformed config files)
+      - id: check-json
+      - id: check-yaml
+        args: ["--unsafe"]
+      # Remove trailing whitespace
+      - id: trailing-whitespace
+        exclude: ".*\\.md$"
+      # Ensure files end with a newline
+      - id: end-of-file-fixer
+        exclude: ".*\\.min\\.(js|css)$"
+
+  # ---------------------------------------------------------------------------
+  # .env file protection — never commit .env files with real values
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-dotenv
+        # Warn if a .env file with non-placeholder values is staged
+        # (This hook validates .env syntax; pair with Gitleaks for content)
+
+# ---------------------------------------------------------------------------
+# CI-only override: skip slow hooks in CI and rely on GitHub Actions instead.
+# Set SKIP=detect-secrets in your CI env if the baseline needs regenerating.
+# ---------------------------------------------------------------------------
